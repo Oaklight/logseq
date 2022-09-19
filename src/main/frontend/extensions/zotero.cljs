@@ -233,6 +233,19 @@
                 (fn [] (setting/set-setting! :prefer-citekey? (not (setting/setting :prefer-citekey?))))
                 true)]]])
 
+(rum/defc include-citekey-setting <
+  rum/reactive
+  []
+  [:div.row
+   [:label.title.w-72
+    {:for   "zotero_include_citekey"}
+    "Include citekey in page properties?"]
+   [:div
+    [:div.rounded-md.sm:max-w-xs
+     (ui/toggle (setting/setting :include-citekey-property?)
+                (fn [] (setting/set-setting! :include-citekey-property? (not (setting/setting :include-citekey-property?))))
+                true)]]])
+
 (rum/defc api-key-setting []
   [:div.row
    [:label.title.w-72
@@ -426,6 +439,8 @@
    (user-or-group-setting)
 
    (prefer-citekey-setting)
+
+   (include-citekey-setting)
 
    (attachment-setting)
 

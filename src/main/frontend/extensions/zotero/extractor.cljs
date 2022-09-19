@@ -130,6 +130,7 @@
                                 :authors authors
                                 :tags tags
                                 :date date
+                                :citekey (if (setting/setting :include-citekey-property?) (citation-key item) ())
                                 :item-type (page-ref/->page-ref type))
                          (dissoc :creators :abstract-note)
                          (rename-keys {:title :original-title})
