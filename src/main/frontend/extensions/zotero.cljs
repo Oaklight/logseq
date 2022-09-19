@@ -222,16 +222,28 @@
 (rum/defc prefer-citekey-setting <
   rum/reactive
   []
-  [:div.row
-   [:label.title.w-72
-    {:for   "zotero_prefer_citekey"
-     :title "Make sure to install Better BibTeX and pin your item first"}
-    "Use citekey as your page title?"]
-   [:div
+  [:div
+   [:div.row
+    [:label.title.w-72
+      {:for   "zotero_prefer_citekey"
+      :title "Make sure to install Better BibTeX and pin your item first"}
+      "Use citekey as your page title?"]
+    [:div
     [:div.rounded-md.sm:max-w-xs
      (ui/toggle (setting/setting :prefer-citekey?)
                 (fn [] (setting/set-setting! :prefer-citekey? (not (setting/setting :prefer-citekey?))))
-                true)]]])
+                true)]]]
+   (when (setting/setting :prefer-citekey?)
+     [:div.row
+      [:label.title.w-72
+       {:for "zotero_alias_by_title"
+       :title "Enable this will create a virtual page aliasing the @{citekey} real page."}
+       "Use original article title as page alias?"]
+      [:div.rounded-md.sm:max-w-xs
+       (ui/toggle (setting/setting :alias_by_title?)
+                  (fn [] (setting/set-setting! :alias_by_title? (not (setting/setting :alias_by_title?))))
+                  true)]])                  
+          ])
 
 (rum/defc include-citekey-setting <
   rum/reactive

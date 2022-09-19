@@ -131,6 +131,9 @@
                                 :tags tags
                                 :date date
                                 :citekey (if (setting/setting :include-citekey-property?) (citation-key item) ())
+                                :alias (if (setting/setting :alias_by_title?) 
+                                          ;;  (util/format "[[%s]]" (str (setting/setting :page-insert-prefix) (title item))) ())
+                                           (str (setting/setting :page-insert-prefix) (title item)) ())
                                 :item-type (page-ref/->page-ref type))
                          (dissoc :creators :abstract-note)
                          (rename-keys {:title :original-title})

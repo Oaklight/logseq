@@ -7,6 +7,7 @@
 (def default-settings
   {:type                                    :user
    :prefer-citekey?                         true
+   :alias_by_title?                         false
    :include-citekey-property?               true
    :include-attachments?                    true
    :attachments-block-text                  "[[Attachments]]"
