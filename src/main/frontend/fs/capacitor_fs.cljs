@@ -1,4 +1,5 @@
 (ns frontend.fs.capacitor-fs
+  "Implementation of fs protocol for mobile"
   (:require ["@capacitor/filesystem" :refer [Encoding Filesystem]]
             [cljs-bean.core :as bean]
             [clojure.string :as string]
@@ -62,12 +63,7 @@
 
 (defn- <stat [path]
   (-> (p/chain (.stat Filesystem (clj->js {:path path}))
-               #(js->clj % :keywordize-keys true)
-               #(update % :type (fn [v]
-                                  (case v
-                                    "NSFileTypeDirectory" "directory"
-                                    "NSFileTypeRegular" "file"
-                                    v))))
+               #(js->clj % :keywordize-keys true))
       (p/catch (fn [error]
                  (js/console.error "stat Error: " path ": " error)
                  nil))))
