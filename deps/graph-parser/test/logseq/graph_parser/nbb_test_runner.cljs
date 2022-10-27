@@ -9,10 +9,11 @@
             [logseq.graph-parser.cli-test]
             [logseq.graph-parser.util.page-ref-test]
             [logseq.graph-parser.util-test]
+            [logseq.graph-parser.util.file-name-test]
             [logseq.graph-parser-test]))
 
-(defmethod cljs.test/report [:cljs.test/default :end-run-tests] [m]
-  (when-not (cljs.test/successful? m)
+(defmethod t/report [:cljs.test/default :end-run-tests] [m]
+  (when-not (t/successful? m)
     (set! (.-exitCode js/process) 1)))
 
 ;; run this function with: nbb-logseq -m logseq.test.nbb-test-runner/run-tests
@@ -26,4 +27,5 @@
    'logseq.graph-parser.cli-test
    'logseq.graph-parser.util.page-ref-test
    'logseq.graph-parser-test
+   'logseq.graph-parser.util.file-name-test
    'logseq.graph-parser.util-test))

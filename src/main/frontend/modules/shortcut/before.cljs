@@ -1,7 +1,7 @@
 (ns frontend.modules.shortcut.before
-  (:require [frontend.state :as state]
-            [frontend.util :as util]
-            [frontend.mobile.util :as mobile-util]))
+  (:require [frontend.mobile.util :as mobile-util]
+            [frontend.state :as state]
+            [frontend.util :as util]))
 
 ;; before function
 (defn prevent-default-behavior

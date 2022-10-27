@@ -120,6 +120,7 @@
 
 ;; TODO: extract code for `ls-dir-files` and `reload-dir!`
 (defn ^:large-vars/cleanup-todo ls-dir-files-with-handler!
+  "Read files from directory and setup repo (for the first time setup a repo)"
   ([ok-handler] (ls-dir-files-with-handler! ok-handler nil))
   ([ok-handler {:keys [empty-dir?-or-pred dir-result-fn]}]
    (let [path-handles (atom {})
@@ -172,6 +173,7 @@
                                                                 (contains? #{config/app-name
                                                                              gp-config/default-draw-directory
                                                                              (config/get-journals-directory)
+                                                                             (config/get-whiteboards-directory)
                                                                              (config/get-pages-directory)}
                                                                            last-part)))))
                                                    (into {})))))
@@ -339,7 +341,9 @@
                                            (swap! path-handles assoc path handle))))
                          new-local-files (-> (->db-files mobile-native? electron? dir-name local-files-result)
                                              (remove-ignore-files dir-name nfs?))
-                         new-global-files (if (config/global-config-enabled?)
+                         new-global-files (if (and (config/global-config-enabled?)
+                                                   ;; Hack until we better understand failure in frontend.handler.file/alter-file
+                                                   (global-config-handler/global-config-dir-exists?))
                                             (p/let [global-files-result (fs/get-files
                                                                           (global-config-handler/global-config-dir)
                                                                           (constantly nil))

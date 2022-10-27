@@ -24,7 +24,7 @@
   []
   (when-not (util/mobile?)
     (ui/with-shortcut :ui/toggle-right-sidebar "left"
-      [:button.button.icon.fade-link.toggle-right-sidebar
+      [:button.button.icon.toggle-right-sidebar
        {:title "Toggle right sidebar"
         :on-click ui-handler/toggle-right-sidebar!}
        (ui/icon "layout-sidebar-right" {:style {:fontSize "20px"}})])))
@@ -90,7 +90,9 @@
     (when-let [page-name (if (integer? db-id)
                            (:block/name (db/entity db-id))
                            db-id)]
-      [[:a.page-title {:href     (rfe/href :page {:name page-name})
+      [[:a.page-title {:href     (if (db-model/whiteboard-page? page-name)
+                                   (rfe/href :whiteboard {:name page-name})
+                                   (rfe/href :page {:name page-name}))
                        :on-click (fn [e]
                                    (when (gobj/get e "shiftKey")
                                      (.preventDefault e)))}
@@ -259,8 +261,7 @@
                                                          (state/sidebar-add-block! repo "help" :help))}
           (t :right-side-bar/help)]]]
 
-       [:div
-        (toggle)]]
+       (toggle)]
 
       [:.sidebar-item-list.flex-1.scrollbar-spacing.flex.flex-col.gap-2
        (if @*anim-finished?

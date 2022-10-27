@@ -186,7 +186,7 @@
                       :options (cond->
                                 {:on-click
                                  (fn []
-                                   (state/pub-event! [:graph/ask-for-re-index *multiple-windows?]))})}
+                                   (state/pub-event! [:graph/ask-for-re-index *multiple-windows? nil]))})}
         new-window-link (when (and (util/electron?)
                                    ;; New Window button in menu bar of macOS is available.
                                    (not util/mac?))
@@ -228,7 +228,7 @@
                                              (check-multiple-windows? state)
                                              (toggle-fn))
                                  :title    repo-path}       ;; show full path on hover
-                                [:span.flex.pr-2.relative
+                                [:span.flex.relative
                                  {:style {:top 1}}
                                  (ui/icon "database" {:size 16 :id "database-icon"})]
                                 [:div.graphs
@@ -238,7 +238,8 @@
                                           (when remote? [:span.pl-1 (ui/icon "cloud")])]]
                                   [:span.dropdown-caret.ml-2 {:style {:border-top-color "#6b7280"}}]]]]))
             links-header (cond->
-                           {:modal-class (util/hiccup->class
+                           {:z-index 1000
+                            :modal-class (util/hiccup->class
                                            "origin-top-right.absolute.left-0.mt-2.rounded-md.shadow-lg")}
                            (> (count repos) 1)              ; show switch to if there are multiple repos
                            (assoc :links-header [:div.font-medium.text-sm.opacity-60.px-4.pt-2.pb-1

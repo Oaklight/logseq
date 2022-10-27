@@ -17,6 +17,7 @@
             [frontend.handler.image :as image-handler]
             [frontend.handler.notification :as notification]
             [frontend.handler.page :as page-handler]
+            [frontend.handler.whiteboard :as whiteboard-handler]
             [frontend.mixins :as mixins]
             [frontend.state :as state]
             [frontend.ui :as ui]
@@ -93,21 +94,12 @@
     "Cycle todos"
     nil)])
 
-;; FIXME: Make it configurable
-(def block-background-colors
-  ["#533e7d"
-   "#497d46"
-   "#787f97"
-   "#978626"
-   "#49767b"
-   "#264c9b"])
-
 (defonce *template-including-parent? (atom nil))
 
 (rum/defc template-checkbox
   [template-including-parent?]
-  [:div.flex.flex-row
-   [:span.text-medium.mr-2 "Including the parent block in the template?"]
+  [:div.flex.flex-row.w-auto.items-center
+   [:p.text-medium.mr-2 "Including the parent block in the template?"]
    (ui/toggle template-including-parent?
               #(swap! *template-including-parent? not))])
 
@@ -130,27 +122,29 @@
     (if @edit?
       (do
         (state/clear-edit!)
-        [:div.px-4.py-2 {:on-click (fn [e] (util/stop e))}
-         [:p "What's the template's name?"]
-         [:input#new-template.form-input.block.w-full.sm:text-sm.sm:leading-5.my-2
-          {:auto-focus true
-           :on-change (fn [e]
-                        (reset! input (util/evalue e)))}]
-         (when has-children?
-           (template-checkbox template-including-parent?))
-         (ui/button "Submit"
-                    :on-click (fn []
-                                (let [title (string/trim @input)]
-                                  (when (not (string/blank? title))
-                                    (if (page-handler/template-exists? title)
-                                      (notification/show!
-                                       [:p "Template already exists!"]
-                                       :error)
-                                      (do
-                                        (editor-handler/set-block-property! block-id :template title)
-                                        (when (false? template-including-parent?)
-                                          (editor-handler/set-block-property! block-id :template-including-parent false))
-                                        (state/hide-custom-context-menu!)))))))])
+        [:<>
+         [:div.px-4.py-2.text-sm {:on-click (fn [e] (util/stop e))}
+          [:p "What's the template's name?"]
+          [:input#new-template.form-input.block.w-full.sm:text-sm.sm:leading-5.my-2
+           {:auto-focus true
+            :on-change (fn [e]
+                         (reset! input (util/evalue e)))}]
+          (when has-children?
+            (template-checkbox template-including-parent?))
+          (ui/button "Submit"
+                     :on-click (fn []
+                                 (let [title (string/trim @input)]
+                                   (when (not (string/blank? title))
+                                     (if (page-handler/template-exists? title)
+                                       (notification/show!
+                                        [:p "Template already exists!"]
+                                        :error)
+                                       (do
+                                         (editor-handler/set-block-property! block-id :template title)
+                                         (when (false? template-including-parent?)
+                                           (editor-handler/set-block-property! block-id :template-including-parent false))
+                                         (state/hide-custom-context-menu!)))))))]
+         [:hr.menu-separator]])
       (ui/menu-link
        {:key "Make a Template"
         :on-click (fn [e]
@@ -164,30 +158,50 @@
     (when-let [block (db/entity [:block/uuid block-id])]
       (let [format (:block/format block)]
         [:.menu-links-wrapper
-         [:div.flex.flex-row.justify-between.pb-2.pt-1.px-2.items-center
-          [:div.flex.flex-row.justify-between.flex-1
-           (for [color block-background-colors]
-             [:a.m-2.shadow-sm
-              {:on-click (fn [_e]
+         [:div.flex.flex-row.justify-between.py-1.px-2.items-center
+          [:div.flex.flex-row.justify-between.flex-1.mx-2.mt-2
+           (for [color ui/block-background-colors]
+             [:a.shadow-sm
+              {:title (t (keyword "color" color))
+               :on-click (fn [_e]
                            (editor-handler/set-block-property! block-id "background-color" color))}
-              [:div.heading-bg {:style {:background-color color}}]])
-           [:a.m-2.shadow-sm
+              [:div.heading-bg {:style {:background-color (str "var(--color-" color "-500)")}}]])
+           [:a.shadow-sm
             {:title    (t :remove-background)
              :on-click (fn [_e]
                          (editor-handler/remove-block-property! block-id "background-color"))}
             [:div.heading-bg.remove "-"]]]]
 
          [:div.flex.flex-row.justify-between.pb-2.pt-1.px-2.items-center
-          [:div.flex.flex-row.justify-between.flex-1
+          [:div.flex.flex-row.justify-between.flex-1.px-1
            (for [i (range 1 7)]
              (ui/button
-              (str "H" i)
+              ""
+              :icon (str "h-" i)
+              :title (t :heading i)
+              :class "to-heading-button"
               :on-click (fn [_e]
                           (editor-handler/set-heading! block-id format i))
               :intent "link"
               :small? true))
            (ui/button
-            "H-"
+            ""
+            :icon "h-auto"
+            :icon-props {:extension? true}
+            :class "to-heading-button"
+            :title (if (= format :markdown) 
+                     (str (t :auto-heading) " - " (t :not-available-in-mode format)) 
+                     (t :auto-heading))
+            :disabled (= format :markdown)
+            :on-click (fn [_e]
+                        (editor-handler/set-heading! block-id format true))
+            :intent "link"
+            :small? true)
+           (ui/button
+            ""
+            :icon "heading-off"
+            :icon-props {:extension? true}
+            :class "to-heading-button"
             :title (t :remove-heading)
             :on-click (fn [_e]
                         (editor-handler/remove-heading! block-id format))
@@ -249,7 +263,7 @@
 
          (block-template block-id)
 
-         (cond 
+         (cond
            (srs/card-block? block)
            (ui/menu-link
             {:key      "Preview Card"
@@ -367,41 +381,43 @@
                             block-id (d/attr target "blockid")
                             {:keys [block block-ref]} (state/sub :block-ref/context)
                             {:keys [page]} (state/sub :page-title/context)]
-                        (cond
-                          page
-                          (do
+                        ;; TODO: Find a better way to handle this on whiteboards
+                        (when-not (whiteboard-handler/inside-portal? target)
+                          (cond
+                            page
+                            (do
+                              (common-handler/show-custom-context-menu!
+                               e
+                               (page-title-custom-context-menu-content page))
+                              (state/set-state! :page-title/context nil))
+
+                            block-ref
+                            (do
+                              (common-handler/show-custom-context-menu!
+                               e
+                               (block-ref-custom-context-menu-content block block-ref))
+                              (state/set-state! :block-ref/context nil))
+
+                            (and (state/selection?) (not (d/has-class? target "bullet")))
                             (common-handler/show-custom-context-menu!
                              e
-                             (page-title-custom-context-menu-content page))
-                            (state/set-state! :page-title/context nil))
+                             (custom-context-menu-content))
 
-                          block-ref
-                          (do
-                            (common-handler/show-custom-context-menu!
-                             e
-                             (block-ref-custom-context-menu-content block block-ref))
-                            (state/set-state! :block-ref/context nil))
+                            (and block-id (parse-uuid block-id))
+                            (let [block (.closest target ".ls-block")]
+                              (when block
+                                (util/select-highlight! [block]))
+                              (common-handler/show-custom-context-menu!
+                               e
+                               (block-context-menu-content target (uuid block-id))))
 
-                          (and (state/selection?) (not (d/has-class? target "bullet")))
-                          (common-handler/show-custom-context-menu!
-                           e
-                           (custom-context-menu-content))
-
-                          (and block-id (parse-uuid block-id))
-                          (let [block (.closest target ".ls-block")]
-                            (when block
-                              (util/select-highlight! [block]))
-                            (common-handler/show-custom-context-menu!
-                            e
-                            (block-context-menu-content target (uuid block-id))))
-
-                          :else
-                          nil))))))
+                            :else
+                            nil)))))))
   [id {:keys [hiccup]}]
   [:div {:id id}
    (if hiccup
      hiccup
-     [:div.text-gray-500.cursor "Click to edit"])])
+     [:div.cursor "Click to edit"])])
 
 (rum/defc non-hiccup-content < rum/reactive
   [id content on-click on-hide config format]
@@ -432,7 +448,7 @@
            {:id id
             :on-click on-click}
            (if (string/blank? content)
-             [:div.text-gray-500.cursor "Click to edit"]
+             [:div.cursor "Click to edit"]
              content)])))))
 
 (defn- set-draw-iframe-style!

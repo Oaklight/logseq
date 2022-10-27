@@ -127,12 +127,12 @@
         *collapsed? (atom nil)]
     (ui/foldable
      [:div.flex.flex-row.flex-1.justify-between.items-center
-      [:h2.font-bold.opacity-80 (str
-                                 (when (seq filters)
-                                   (str filter-n " of "))
-                                 total
-                                 " Linked Reference"
-                                 (when (> total 1) "s"))]
+      [:h2.font-medium (str
+                        (when (seq filters)
+                          (str filter-n " of "))
+                        total
+                        " Linked Reference"
+                        (when (> total 1) "s"))]
       [:a.filter.fade-link
        {:title "Filter"
         :on-mouse-over (fn [_e]
@@ -148,11 +148,11 @@
                                    (empty? filter-state)
                                    ""
                                    (every? true? (vals filter-state))
-                                   "text-green-400"
+                                   "text-success"
                                    (every? false? (vals filter-state))
-                                   "text-red-400"
+                                   "text-error"
                                    :else
-                                   "text-yellow-400")
+                                   "text-warning")
                           :style {:fontSize 24}})]]
 
      (fn []
@@ -275,7 +275,7 @@
         [:div.references.mt-6.flex-1.flex-row
          [:div.content.flex-1
           (ui/foldable
-           [:h2.font-bold.opacity-80
+           [:h2.font-medium
             (if @n-ref
               (str @n-ref " Unlinked Reference" (when (> @n-ref 1)
                                                   "s"))

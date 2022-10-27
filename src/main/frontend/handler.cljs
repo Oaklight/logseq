@@ -5,8 +5,11 @@
             [clojure.string :as string]
             [electron.ipc :as ipc]
             [electron.listener :as el]
+            [frontend.components.block :as block]
+            [frontend.components.editor :as editor]
             [frontend.components.page :as page]
             [frontend.components.reference :as reference]
+            [frontend.components.whiteboard :as whiteboard]
             [frontend.config :as config]
             [frontend.context.i18n :as i18n :refer [t]]
             [frontend.db :as db]
@@ -25,6 +28,7 @@
             [frontend.handler.user :as user-handler]
             [frontend.handler.repo-config :as repo-config-handler]
             [frontend.handler.global-config :as global-config-handler]
+            [frontend.handler.plugin-config :as plugin-config-handler]
             [frontend.handler.metadata :as metadata-handler]
             [frontend.idb :as idb]
             [frontend.mobile.util :as mobile-util]
@@ -88,11 +92,11 @@
            (->
             (p/do! (repo-config-handler/start {:repo repo})
                    (when (config/global-config-enabled?)
-                     (global-config-handler/start {:repo repo})))
+                     (global-config-handler/start {:repo repo}))
+                   (when (config/plugin-config-enabled?) (plugin-config-handler/start)))
             (p/finally
               (fn []
                 ;; install after config is restored
-                (shortcut/unlisten-all)
                 (shortcut/refresh!)
 
                 (cond
@@ -186,6 +190,9 @@
   []
   (state/set-page-blocks-cp! page/page-blocks-cp)
   (state/set-component! :block/linked-references reference/block-linked-references)
+  (state/set-component! :whiteboard/tldraw-preview whiteboard/tldraw-preview)
+  (state/set-component! :block/single-block block/single-block-cp)
+  (state/set-component! :editor/box editor/box)
   (command-palette/register-global-shortcut-commands))
 
 (reset! db/*db-listener outliner-db/after-transact-pipelines)
@@ -205,6 +212,7 @@
    (fn [_error]
      (notification/show! "Sorry, it seems that your browser doesn't support IndexedDB, we recommend to use latest Chrome(Chromium) or Firefox(Non-private mode)." :error false)
      (state/set-indexedb-support! false)))
+  (idb/start)
 
   (react/run-custom-queries-when-idle!)
 

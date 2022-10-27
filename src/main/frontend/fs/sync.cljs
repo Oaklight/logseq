@@ -29,7 +29,8 @@
             [medley.core :refer [dedupe-by]]
             [rum.core :as rum]
             [promesa.core :as p]
-            [lambdaisland.glogi :as log]))
+            [lambdaisland.glogi :as log]
+            [frontend.fs.capacitor-fs :as capacitor-fs]))
 
 ;;; ### Commentary
 ;; file-sync related local files/dirs:
@@ -107,8 +108,8 @@
 (s/def ::TXContent-from-path (s/or :some string? :none nil?))
 (s/def ::TXContent-checksum (s/or :some string? :none nil?))
 (s/def ::TXContent-item (s/tuple ::TXContent-to-path
-                                     ::TXContent-from-path
-                                     ::TXContent-checksum))
+                                 ::TXContent-from-path
+                                 ::TXContent-checksum))
 (s/def ::TXContent (s/coll-of ::TXContent-item))
 (s/def ::diff (s/keys :req-un [::TXId ::TXType ::TXContent]))
 
@@ -120,7 +121,8 @@
 (s/def ::graph-has-been-deleted #(= {:graph-has-been-deleted true} %))
 
 (s/def ::sync-local->remote!-result
-  (s/or :succ ::succ-map
+  (s/or :stop ::stop-map
+        :succ ::succ-map
         :pause ::pause-map
         :need-sync-remote ::need-sync-remote
         :graph-has-been-deleted ::graph-has-been-deleted
@@ -295,9 +297,9 @@
 (defn <request [api-name & args]
   (let [name (str api-name (.now js/Date))]
     (go (swap! *on-flying-request conj name)
-        (let [r (<! (apply <request* api-name args))]
-          (swap! *on-flying-request disj name)
-          r))))
+      (let [r (<! (apply <request* api-name args))]
+        (swap! *on-flying-request disj name)
+        r))))
 
 (defn- remove-dir-prefix [dir path]
   (let [r (string/replace path (js/RegExp. (str "^" (gstring/regExpEscape dir))) "")]
@@ -336,7 +338,7 @@
   (-stop! [this]))
 (defprotocol IStopped?
   (-stopped? [this]))
-                                        ;from-path, to-path is relative path
+;from-path, to-path is relative path
 (deftype FileTxn [from-path to-path updated? deleted? txid checksum]
   Object
   (renamed? [_]
@@ -381,19 +383,19 @@
   (let [update? (= "update_files" TXType)
         delete? (= "delete_files" TXType)
         update-xf
-        (comp
-         (remove #(or (empty? (first %))
-                      (empty? (last %))))
-         (map #(->FileTxn (first %) (first %) update? delete? TXId (last %))))
+                (comp
+                 (remove #(or (empty? (first %))
+                              (empty? (last %))))
+                 (map #(->FileTxn (first %) (first %) update? delete? TXId (last %))))
         delete-xf
-        (comp
-         (remove #(empty? (first %)))
-         (map #(->FileTxn (first %) (first %) update? delete? TXId nil)))
+                (comp
+                 (remove #(empty? (first %)))
+                 (map #(->FileTxn (first %) (first %) update? delete? TXId nil)))
         rename-xf
-        (comp
-         (remove #(or (empty? (first %))
-                      (empty? (second %))))
-         (map #(->FileTxn (second %) (first %) false false TXId nil)))
+                (comp
+                 (remove #(or (empty? (first %))
+                              (empty? (second %))))
+                 (map #(->FileTxn (second %) (first %) false false TXId nil)))
         xf (case TXType
              "delete_files" delete-xf
              "update_files" update-xf
@@ -579,21 +581,21 @@
    #{} s1))
 
 (comment
-  (defn map->FileMetadata [m]
-    (apply ->FileMetadata ((juxt :size :etag :path :encrypted-path :last-modified :remote? (constantly nil)) m)))
+ (defn map->FileMetadata [m]
+   (apply ->FileMetadata ((juxt :size :etag :path :encrypted-path :last-modified :remote? (constantly nil)) m)))
 
-  (assert
-   (=
-    #{(map->FileMetadata {:size 1 :etag 2 :path 2 :encrypted-path 2 :last-modified 2})}
-    (diff-file-metadata-sets
-     (into #{}
-           (map map->FileMetadata)
-           [{:size 1 :etag 1 :path 1 :encrypted-path 1 :last-modified 1}
-            {:size 1 :etag 2 :path 2 :encrypted-path 2 :last-modified 2}])
-     (into #{}
-           (map map->FileMetadata)
-           [{:size 1 :etag 1 :path 1 :encrypted-path 1 :last-modified 1}
-            {:size 1 :etag 1 :path 2 :encrypted-path 2 :last-modified 1}])))))
+ (assert
+  (=
+   #{(map->FileMetadata {:size 1 :etag 2 :path 2 :encrypted-path 2 :last-modified 2})}
+   (diff-file-metadata-sets
+    (into #{}
+          (map map->FileMetadata)
+          [{:size 1 :etag 1 :path 1 :encrypted-path 1 :last-modified 1}
+           {:size 1 :etag 2 :path 2 :encrypted-path 2 :last-modified 2}])
+    (into #{}
+          (map map->FileMetadata)
+          [{:size 1 :etag 1 :path 1 :encrypted-path 1 :last-modified 1}
+           {:size 1 :etag 1 :path 2 :encrypted-path 2 :last-modified 1}])))))
 
 (extend-protocol IChecksum
   FileMetadata
@@ -659,7 +661,8 @@
   (<delete-remote-files [this graph-uuid base-path filepaths local-txid] "return err or txid")
   (<encrypt-fnames [this graph-uuid fnames])
   (<decrypt-fnames [this graph-uuid fnames])
-  (<cancel-all-requests [this]))
+  (<cancel-all-requests [this])
+  (<add-new-version [this repo path content]))
 
 (defprotocol IRemoteAPI
   (<user-info [this] "user info")
@@ -805,8 +808,10 @@
                                                (ex-info "decrypt-failed" {:fnames fnames} (ex-cause r))
                                                (js->clj r)))))
   (<cancel-all-requests [_]
-    (p->c (ipc/ipc "cancel-all-requests"))))
+    (p->c (ipc/ipc "cancel-all-requests")))
 
+  (<add-new-version [_this repo path content]
+    (p->c (ipc/ipc "addVersionFile" (config/get-local-dir repo) path content))))
 
 (deftype ^:large-vars/cleanup-todo CapacitorAPI [^:mutable graph-uuid' ^:mutable private-key ^:mutable public-key']
   IToken
@@ -937,7 +942,9 @@
             (ex-info "decrypt-failed" {:fnames fnames} (ex-cause r))
             (get (js->clj r) "value")))))
   (<cancel-all-requests [_]
-    (p->c (.cancelAllRequests mobile-util/file-sync))))
+    (p->c (.cancelAllRequests mobile-util/file-sync)))
+  (<add-new-version [_this repo path content]
+    (p->c (capacitor-fs/backup-file repo :version-file-dir path content))))
 
 (def rsapi (cond
              (util/electron?)
@@ -951,6 +958,10 @@
 
              :else
              nil))
+
+(defn add-new-version-file
+  [repo path content]
+  (<add-new-version rsapi repo path content))
 
 (defn <rsapi-cancel-all-requests []
   (go
@@ -1018,8 +1029,8 @@
      (go-loop []
        (let [{:keys [val stop]}
              (async/alt!
-               debug-print-sync-events-loop-stop-chan {:stop true}
-               out-ch ([v] {:val v}))]
+              debug-print-sync-events-loop-stop-chan {:stop true}
+              out-ch ([v] {:val v}))]
          (cond
            stop (do (async/unmix-all out-mix)
                     (doseq [[topic ch] topic&chs]
@@ -1035,28 +1046,28 @@
 
 
 (comment
-  ;; sub one type event example:
-  (def c1 (chan 10))
-  (async/sub sync-events-publication :created-local-version-file c1)
-  (offer! sync-events-chan {:event :created-local-version-file :data :xxx})
-  (poll! c1)
+ ;; sub one type event example:
+ (def c1 (chan 10))
+ (async/sub sync-events-publication :created-local-version-file c1)
+ (offer! sync-events-chan {:event :created-local-version-file :data :xxx})
+ (poll! c1)
 
-  ;; sub multiple type events example:
-  ;; sub :created-local-version-file and :finished-remote->local events,
-  ;; output into channel c4-out
-  (def c2 (chan 10))
-  (def c3 (chan 10))
-  (def c4-out (chan 10))
-  (def mix-out (async/mix c4-out))
-  (async/admix mix-out c2)
-  (async/admix mix-out c3)
-  (async/sub sync-events-publication :created-local-version-file c2)
-  (async/sub sync-events-publication :finished-remote->local c3)
-  (offer! sync-events-chan {:event :created-local-version-file :data :xxx})
-  (offer! sync-events-chan {:event :finished-remote->local :data :xxx})
-  (poll! c4-out)
-  (poll! c4-out)
-  )
+ ;; sub multiple type events example:
+ ;; sub :created-local-version-file and :finished-remote->local events,
+ ;; output into channel c4-out
+ (def c2 (chan 10))
+ (def c3 (chan 10))
+ (def c4-out (chan 10))
+ (def mix-out (async/mix c4-out))
+ (async/admix mix-out c2)
+ (async/admix mix-out c3)
+ (async/sub sync-events-publication :created-local-version-file c2)
+ (async/sub sync-events-publication :finished-remote->local c3)
+ (offer! sync-events-chan {:event :created-local-version-file :data :xxx})
+ (offer! sync-events-chan {:event :finished-remote->local :data :xxx})
+ (poll! c4-out)
+ (poll! c4-out)
+ )
 
 ;;; sync events ends
 
@@ -1114,27 +1125,27 @@
       (let [file-meta-list      (transient #{})
             encrypted-path-list (transient [])
             exp-r
-            (<!
-             (go-loop [continuation-token nil]
-               (let [r (<! (.<request this "get_all_files"
-                                      (into
-                                       {}
-                                       (remove (comp nil? second)
-                                               {:GraphUUID graph-uuid :ContinuationToken continuation-token}))))]
-                 (if (instance? ExceptionInfo r)
-                   r
-                   (let [next-continuation-token (:NextContinuationToken r)
-                         objs                    (:Objects r)]
-                     (apply conj! encrypted-path-list (map (comp remove-user-graph-uuid-prefix :Key) objs))
-                     (apply conj! file-meta-list
-                            (map
-                             #(hash-map :checksum (:checksum %)
-                                        :encrypted-path (remove-user-graph-uuid-prefix (:Key %))
-                                        :size (:Size %)
-                                        :last-modified (:LastModified %))
-                             objs))
-                     (when-not (empty? next-continuation-token)
-                       (recur next-continuation-token)))))))]
+                                (<!
+                                 (go-loop [continuation-token nil]
+                                   (let [r (<! (.<request this "get_all_files"
+                                                          (into
+                                                           {}
+                                                           (remove (comp nil? second)
+                                                                   {:GraphUUID graph-uuid :ContinuationToken continuation-token}))))]
+                                     (if (instance? ExceptionInfo r)
+                                       r
+                                       (let [next-continuation-token (:NextContinuationToken r)
+                                             objs                    (:Objects r)]
+                                         (apply conj! encrypted-path-list (map (comp remove-user-graph-uuid-prefix :Key) objs))
+                                         (apply conj! file-meta-list
+                                                (map
+                                                 #(hash-map :checksum (:checksum %)
+                                                            :encrypted-path (remove-user-graph-uuid-prefix (:Key %))
+                                                            :size (:Size %)
+                                                            :last-modified (:LastModified %))
+                                                 objs))
+                                         (when-not (empty? next-continuation-token)
+                                           (recur next-continuation-token)))))))]
         (if (instance? ExceptionInfo exp-r)
           exp-r
           (let [file-meta-list*      (persistent! file-meta-list)
@@ -1198,58 +1209,58 @@
           (let [txns-with-encrypted-paths (mapv #(update % :path remove-user-graph-uuid-prefix) (:Transactions r))
                 encrypted-paths           (mapv :path txns-with-encrypted-paths)
                 encrypted-path->path-map
-                (zipmap
-                 encrypted-paths
-                 (<! (<decrypt-fnames rsapi graph-uuid encrypted-paths)))
+                                          (zipmap
+                                           encrypted-paths
+                                           (<! (<decrypt-fnames rsapi graph-uuid encrypted-paths)))
                 txns
-                (mapv
-                 (fn [txn] (update txn :path #(get encrypted-path->path-map %)))
-                 txns-with-encrypted-paths)]
+                                          (mapv
+                                           (fn [txn] (update txn :path #(get encrypted-path->path-map %)))
+                                           txns-with-encrypted-paths)]
             txns)))))
 
   (<get-diff [this graph-uuid from-txid]
-    ;; TODO: path in transactions should be relative path(now s3 key, which includes graph-uuid and user-uuid)
+   ;; TODO: path in transactions should be relative path(now s3 key, which includes graph-uuid and user-uuid)
     (go
       (let [r (<! (.<request this "get_diff" {:GraphUUID graph-uuid :FromTXId from-txid}))]
         (if (instance? ExceptionInfo r)
           r
           (let [txns-with-encrypted-paths (sort-by :TXId (:Transactions r))
                 txns-with-encrypted-paths*
-                (mapv
-                 (fn [txn]
-                   (assoc txn :TXContent
-                          (mapv
-                           (fn [[to-path from-path checksum]]
-                             [(remove-user-graph-uuid-prefix to-path)
-                              (some-> from-path remove-user-graph-uuid-prefix)
-                              checksum])
-                           (:TXContent txn))))
-                 txns-with-encrypted-paths)
+                                          (mapv
+                                           (fn [txn]
+                                             (assoc txn :TXContent
+                                                    (mapv
+                                                     (fn [[to-path from-path checksum]]
+                                                       [(remove-user-graph-uuid-prefix to-path)
+                                                        (some-> from-path remove-user-graph-uuid-prefix)
+                                                        checksum])
+                                                     (:TXContent txn))))
+                                           txns-with-encrypted-paths)
                 encrypted-paths
-                (mapcat
-                 (fn [txn]
-                   (remove
-                    #(or (nil? %) (not (string/starts-with? % "e.")))
-                    (mapcat
-                     (fn [[to-path from-path _checksum]] [to-path from-path])
-                     (:TXContent txn))))
-                 txns-with-encrypted-paths*)
+                                          (mapcat
+                                           (fn [txn]
+                                             (remove
+                                              #(or (nil? %) (not (string/starts-with? % "e.")))
+                                              (mapcat
+                                               (fn [[to-path from-path _checksum]] [to-path from-path])
+                                               (:TXContent txn))))
+                                           txns-with-encrypted-paths*)
                 encrypted-path->path-map
-                (zipmap
-                 encrypted-paths
-                 (<! (<decrypt-fnames rsapi graph-uuid encrypted-paths)))
+                                          (zipmap
+                                           encrypted-paths
+                                           (<! (<decrypt-fnames rsapi graph-uuid encrypted-paths)))
                 txns
-                (mapv
-                 (fn [txn]
-                   (assoc
-                    txn :TXContent
-                    (mapv
-                     (fn [[to-path from-path checksum]]
-                       [(get encrypted-path->path-map to-path to-path)
-                        (some->> from-path (get encrypted-path->path-map))
-                        checksum])
-                     (:TXContent txn))))
-                 txns-with-encrypted-paths*)]
+                                          (mapv
+                                           (fn [txn]
+                                             (assoc
+                                               txn :TXContent
+                                               (mapv
+                                                (fn [[to-path from-path checksum]]
+                                                  [(get encrypted-path->path-map to-path to-path)
+                                                   (some->> from-path (get encrypted-path->path-map))
+                                                   checksum])
+                                                (:TXContent txn))))
+                                           txns-with-encrypted-paths*)]
             [txns
              (:TXId (last txns))
              (:TXId (first txns))])))))
@@ -1309,11 +1320,6 @@
           (when (and public-key encrypted-private-key)
             (swap! *get-graph-encrypt-keys-memoize-cache conj [graph-uuid r]))
           r))))
-
-(defn add-new-version-file
-  [repo path content]
-  ;; TODO @leizhe mobile implementation
-  (ipc/ipc "addVersionFile" (config/get-local-dir repo) path content))
 
 (defn- is-journals-or-pages?
   [filetxn]
@@ -1448,14 +1454,14 @@
                      [recent-remote->local-file-item])
               (<! (<delete-local-files rsapi graph-uuid base-path [relative-p*]))
               (go (<! (timeout 5000))
-                  (swap! *sync-state sync-state--remove-recent-remote->local-files
-                         [recent-remote->local-file-item])))))
+                (swap! *sync-state sync-state--remove-recent-remote->local-files
+                       [recent-remote->local-file-item])))))
 
         (let [update-local-files-ch (<update-local-files rsapi graph-uuid base-path (map relative-path filetxns))
               r (<! (<with-pause update-local-files-ch *paused))]
           (doseq [[filetxn origin-db-content] txn->db-content-vec]
             (when (<! (need-add-version-file? filetxn origin-db-content))
-              (add-new-version-file repo (relative-path filetxn) origin-db-content)
+              (<! (<add-new-version rsapi repo (relative-path filetxn) origin-db-content))
               (put-sync-event! {:event :created-local-version-file
                                 :data {:graph-uuid graph-uuid
                                        :repo repo
@@ -1498,15 +1504,15 @@
                                                      (not (instance? ExceptionInfo r)))]
           ;; remove these recent-remote->local-file-items 5s later
           (go (<! (timeout 5000))
-              (swap! *sync-state sync-state--remove-recent-remote->local-files
-                     recent-remote->local-file-items))
+            (swap! *sync-state sync-state--remove-recent-remote->local-files
+                   recent-remote->local-file-items))
           (cond
             (instance? ExceptionInfo r) r
             @*paused                    {:pause true}
             :else
             (let [latest-txid (apply max (map #(.-txid ^FileTxn %) filetxns))]
               ;; update local-txid
-              (when *txid
+              (when (and *txid (number? latest-txid))
                 (reset! *txid latest-txid)
                 (<! (<update-graphs-txid! latest-txid graph-uuid user-uuid repo)))
               (recur (next filetxns-partitions*)))))))))
@@ -1599,7 +1605,7 @@
           path (relative-path e)]
       {:remote->local-type tp
        :checksum (if (= tp :delete) nil
-                     (val (first (<! (get-local-files-checksum graph-uuid (.-dir e) [path])))))
+                                    (val (first (<! (get-local-files-checksum graph-uuid (.-dir e) [path])))))
        :path path})))
 
 (defn- distinct-file-change-events-xf
@@ -1660,8 +1666,8 @@
     (go-loop []
       (let [{:keys [rename-event local-change]}
             (async/alt!
-              rename-page-event-chan ([v] {:rename-event v}) ;; {:repo X :old-path X :new-path}
-              local-changes-chan ([v] {:local-change v}))]
+             rename-page-event-chan ([v] {:rename-event v}) ;; {:repo X :old-path X :new-path}
+             local-changes-chan ([v] {:local-change v}))]
         (cond
           rename-event
           (let [repo-dir (config/get-repo-dir (:repo rename-event))
@@ -1674,7 +1680,7 @@
             (swap! *rename-events conj k1 k2)
             ;; remove rename-events after 2s
             (go (<! (timeout 3000))
-                (swap! *rename-events disj k1 k2))
+              (swap! *rename-events disj k1 k2))
             ;; add 2 simulated file-watcher events
             (>! ch (->FileChangeEvent "unlink" repo-dir (:old-path rename-event*) nil nil))
             (>! ch (->FileChangeEvent "add" repo-dir (:new-path rename-event*)
@@ -1820,7 +1826,7 @@
                                {:GraphUUID graph-uuid
                                 :init-graph-keys init-graph-keys
                                 :after-input-password #(go (<! (restore-pwd! graph-uuid))
-                                                           (offer! <restored-pwd {:graph-uuid graph-uuid :value true}))}])
+                                                         (offer! <restored-pwd {:graph-uuid graph-uuid :value true}))}])
             nil)
         pwd))))
 
@@ -2118,8 +2124,9 @@
   (<sync-local->remote-all-files! [this] "compare all local files to remote ones, sync when not equal.
   if local-txid != remote-txid, return {:need-sync-remote true}"))
 
-(defrecord Remote->LocalSyncer [user-uuid graph-uuid base-path repo *txid *sync-state remoteapi
-                                ^:mutable local->remote-syncer *stopped *paused]
+(defrecord ^:large-vars/cleanup-todo
+    Remote->LocalSyncer [user-uuid graph-uuid base-path repo *txid *sync-state remoteapi
+                         ^:mutable local->remote-syncer *stopped *paused]
   Object
   (set-local->remote-syncer! [_ s] (set! local->remote-syncer s))
   (sync-files-remote->local!
@@ -2134,13 +2141,13 @@
               {:succ true}
               (do
                 (put-sync-event! {:event :start
-                                  :data  {:type :full-remote->local
+                                  :data  {:type       :full-remote->local
                                           :graph-uuid graph-uuid
                                           :full-sync? true
                                           :epoch      (tc/to-epoch (t/now))}})
                 (<! (apply-filetxns-partitions
-                    *sync-state user-uuid graph-uuid base-path partitioned-filetxns repo
-                    nil *stopped *paused))))]
+                     *sync-state user-uuid graph-uuid base-path partitioned-filetxns repo
+                     nil *stopped *paused))))]
         (cond
           (instance? ExceptionInfo r) {:unknown r}
           @*stopped                   {:stop true}
@@ -2169,7 +2176,7 @@
                                                             '()
                                                             (reverse diff-txns))]
                         (put-sync-event! {:event :start
-                                          :data  {:type :remote->local
+                                          :data  {:type       :remote->local
                                                   :graph-uuid graph-uuid
                                                   :full-sync? false
                                                   :epoch      (tc/to-epoch (t/now))}})
@@ -2196,33 +2203,42 @@
                 (sync-stop-when-api-flying? remote-all-files-meta-or-exp)
                 (decrypt-exp? remote-all-files-meta-or-exp))
           (do (put-sync-event! {:event :exception-decrypt-failed
-                                :data {:graph-uuid graph-uuid
-                                       :exp remote-all-files-meta-or-exp
-                                       :epoch (tc/to-epoch (t/now))}})
+                                :data  {:graph-uuid graph-uuid
+                                        :exp        remote-all-files-meta-or-exp
+                                        :epoch      (tc/to-epoch (t/now))}})
               {:stop true})
-          (let [remote-all-files-meta remote-all-files-meta-or-exp
-                local-all-files-meta  (<! local-all-files-meta-c)
-                diff-remote-files     (diff-file-metadata-sets remote-all-files-meta local-all-files-meta)
-                recent-10-days-range  ((juxt #(tc/to-long (t/minus % (t/days 10))) #(tc/to-long %)) (t/today))
+          (let [remote-all-files-meta   remote-all-files-meta-or-exp
+                local-all-files-meta    (<! local-all-files-meta-c)
+                diff-remote-files       (diff-file-metadata-sets remote-all-files-meta local-all-files-meta)
+                recent-10-days-range    ((juxt #(tc/to-long (t/minus % (t/days 10))) #(tc/to-long %)) (t/today))
                 sorted-diff-remote-files
                 (sort-by
                  (sort-file-metadata-fn :recent-days-range recent-10-days-range) > diff-remote-files)
-                latest-txid           (:TXId (<! (<get-remote-graph remoteapi nil graph-uuid)))]
-            (println "[full-sync(remote->local)]" (count sorted-diff-remote-files) "files need to sync")
-            (swap! *sync-state #(sync-state-reset-full-remote->local-files % sorted-diff-remote-files))
-            (<! (.sync-files-remote->local!
-                 this (map (juxt relative-path -checksum)
-                           sorted-diff-remote-files)
-                 latest-txid))))))))
+                remote-graph-info-or-ex (<! (<get-remote-graph remoteapi nil graph-uuid))
+                latest-txid             (:TXId remote-graph-info-or-ex)]
+            (if (or (instance? ExceptionInfo remote-graph-info-or-ex) (nil? latest-txid))
+              (do (put-sync-event! {:event :get-remote-graph-failed
+                                    :data {:graph-uuid graph-uuid
+                                           :exp remote-graph-info-or-ex
+                                           :epoch (tc/to-epoch (t/now))}})
+                  {:stop true})
+              (do (println "[full-sync(remote->local)]" (count sorted-diff-remote-files) "files need to sync")
+                  (swap! *sync-state #(sync-state-reset-full-remote->local-files % sorted-diff-remote-files))
+                  (<! (.sync-files-remote->local!
+                       this (map (juxt relative-path -checksum)
+                                 sorted-diff-remote-files)
+                       latest-txid))))))))))
 
 (defn- <file-changed?
   "return true when file changed compared with remote"
   [graph-uuid file-path-without-base-path base-path]
   {:pre [(string? file-path-without-base-path)]}
   (go
-    (let [remote-meta (first (<! (<get-remote-files-meta remoteapi graph-uuid [file-path-without-base-path])))
+    (let [remote-meta-or-exp (<! (<get-remote-files-meta remoteapi graph-uuid [file-path-without-base-path]))
           local-meta (first (<! (<get-local-files-meta rsapi graph-uuid base-path [file-path-without-base-path])))]
-      (not= remote-meta local-meta))))
+      (if (instance? ExceptionInfo remote-meta-or-exp)
+        false
+        (not= (first remote-meta-or-exp) local-meta)))))
 
 (defn- <filter-local-changes-pred
   "filter local-change events:
@@ -2303,10 +2319,10 @@
 
 
 (defrecord ^:large-vars/cleanup-todo
-    Local->RemoteSyncer [user-uuid graph-uuid base-path repo *sync-state remoteapi
-                         ^:mutable rate *txid ^:mutable remote->local-syncer stop-chan *stopped *paused
-                         ;; control chans
-                         private-immediately-local->remote-chan private-recent-edited-chan]
+  Local->RemoteSyncer [user-uuid graph-uuid base-path repo *sync-state remoteapi
+                       ^:mutable rate *txid ^:mutable remote->local-syncer stop-chan *stopped *paused
+                       ;; control chans
+                       private-immediately-local->remote-chan private-recent-edited-chan]
   Object
   (filter-file-change-events-fn [_]
     (fn [^FileChangeEvent e]
@@ -2395,10 +2411,17 @@
 
               (need-reset-local-txid? r*) ;; TODO: this cond shouldn't be true,
               ;; but some potential bugs cause local-txid > remote-txid
-              (let [remote-txid (:TXId (<! (<get-remote-graph remoteapi nil graph-uuid)))]
-                (<! (<update-graphs-txid! remote-txid graph-uuid user-uuid repo))
-                (reset! *txid remote-txid)
-                {:succ true})
+              (let [remote-graph-info-or-ex (<! (<get-remote-graph remoteapi nil graph-uuid))
+                    remote-txid             (:TXId remote-graph-info-or-ex)]
+                (if (or (instance? ExceptionInfo remote-graph-info-or-ex) (nil? remote-txid))
+                  (do (put-sync-event! {:event :get-remote-graph-failed
+                                        :data  {:graph-uuid graph-uuid
+                                                :exp        remote-graph-info-or-ex
+                                                :epoch      (tc/to-epoch (t/now))}})
+                      {:stop true})
+                  (do (<! (<update-graphs-txid! remote-txid graph-uuid user-uuid repo))
+                      (reset! *txid remote-txid)
+                      {:succ true})))
 
               (graph-has-been-deleted? r*)
               (do (println :graph-has-been-deleted r*)
@@ -2426,22 +2449,32 @@
             local-all-files-meta-c       (<get-local-all-files-meta rsapi graph-uuid base-path)
             deletion-logs-c              (<get-deletion-logs remoteapi graph-uuid @*txid)
             remote-all-files-meta-or-exp (<! remote-all-files-meta-c)
-            deletion-logs                (<! deletion-logs-c)]
-        (if (or (storage-exceed-limit? remote-all-files-meta-or-exp)
-                (sync-stop-when-api-flying? remote-all-files-meta-or-exp)
-                (decrypt-exp? remote-all-files-meta-or-exp))
-          (do (put-sync-event! {:event :exception-decrypt-failed
+            deletion-logs-or-exp         (<! deletion-logs-c)]
+        (cond
+          (or (storage-exceed-limit? remote-all-files-meta-or-exp)
+              (sync-stop-when-api-flying? remote-all-files-meta-or-exp)
+              (decrypt-exp? remote-all-files-meta-or-exp))
+          (do (put-sync-event! {:event :get-remote-all-files-failed
                                 :data  {:graph-uuid graph-uuid
                                         :exp        remote-all-files-meta-or-exp
                                         :epoch      (tc/to-epoch (t/now))}})
               {:stop true})
-          (let [remote-all-files-meta remote-all-files-meta-or-exp
-                local-all-files-meta  (<! local-all-files-meta-c)
+
+          (instance? ExceptionInfo deletion-logs-or-exp)
+          (do (put-sync-event! {:event :get-deletion-logs-failed
+                                :data  {:graph-uuid graph-uuid
+                                        :exp        deletion-logs-or-exp
+                                        :epoch      (tc/to-epoch (t/now))}})
+              {:stop true})
+
+          :else
+          (let [remote-all-files-meta  remote-all-files-meta-or-exp
+                local-all-files-meta   (<! local-all-files-meta-c)
                 {local-all-files-meta :keep delete-local-files :delete}
-                (filter-local-files-in-deletion-logs local-all-files-meta deletion-logs)
-                recent-10-days-range  ((juxt #(tc/to-long (t/minus % (t/days 10))) #(tc/to-long %)) (t/today))
-                diff-local-files      (->> (diff-file-metadata-sets local-all-files-meta remote-all-files-meta)
-                                           (sort-by (sort-file-metadata-fn :recent-days-range recent-10-days-range) >))
+                (filter-local-files-in-deletion-logs local-all-files-meta deletion-logs-or-exp)
+                recent-10-days-range   ((juxt #(tc/to-long (t/minus % (t/days 10))) #(tc/to-long %)) (t/today))
+                diff-local-files       (->> (diff-file-metadata-sets local-all-files-meta remote-all-files-meta)
+                                            (sort-by (sort-file-metadata-fn :recent-days-range recent-10-days-range) >))
                 change-events
                 (sequence
                  (comp
@@ -2451,7 +2484,7 @@
                   (remove ignored?))
                  diff-local-files)
                 distinct-change-events (distinct-file-change-events change-events)
-                _ (swap! *sync-state #(sync-state-reset-full-local->remote-files % distinct-change-events))
+                _                      (swap! *sync-state #(sync-state-reset-full-local->remote-files % distinct-change-events))
                 change-events-partitions
                 (sequence
                  ;; partition FileChangeEvents
@@ -2461,7 +2494,7 @@
                      (count (flatten change-events-partitions)) "files need to sync and"
                      (count delete-local-files) "local files need to delete")
             (put-sync-event! {:event :start
-                              :data  {:type :full-local->remote
+                              :data  {:type       :full-local->remote
                                       :graph-uuid graph-uuid
                                       :full-sync? true
                                       :epoch      (tc/to-epoch (t/now))}})
@@ -2471,8 +2504,8 @@
                 (let [relative-p (relative-path f)]
                   (when-not (<! (<local-file-not-exist? graph-uuid rsapi base-path relative-p))
                     (let [fake-recent-remote->local-file-item {:remote->local-type :delete
-                                                               :checksum nil
-                                                               :path relative-p}]
+                                                               :checksum           nil
+                                                               :path               relative-p}]
                       (swap! *sync-state sync-state--add-recent-remote->local-files
                              [fake-recent-remote->local-file-item])
                       (<! (<delete-local-files rsapi graph-uuid base-path [(relative-path f)]))
@@ -2487,25 +2520,25 @@
                 {:stop true}
                 (if (empty? es-partitions)
                   {:succ true}
-                  (let [{:keys [succ need-sync-remote graph-has-been-deleted unknown] :as r}
+                  (let [{:keys [succ need-sync-remote graph-has-been-deleted unknown stop] :as r}
                         (<! (<sync-local->remote! this (first es-partitions)))]
                     (s/assert ::sync-local->remote!-result r)
                     (cond
                       succ
                       (recur (next es-partitions))
-                      (or need-sync-remote graph-has-been-deleted unknown) r)))))))))))
+                      (or need-sync-remote graph-has-been-deleted unknown stop) r)))))))))))
 
 ;;; ### put all stuff together
 
 (defrecord ^:large-vars/cleanup-todo
- SyncManager [graph-uuid base-path *sync-state
-              ^Local->RemoteSyncer local->remote-syncer ^Remote->LocalSyncer remote->local-syncer remoteapi
-              ^:mutable ratelimit-local-changes-chan
-              *txid ^:mutable state ^:mutable remote-change-chan ^:mutable *ws *stopped? *paused?
-              ^:mutable ops-chan
-              ;; control chans
-              private-full-sync-chan private-stop-sync-chan private-remote->local-sync-chan
-              private-remote->local-full-sync-chan private-pause-resume-chan]
+  SyncManager [graph-uuid base-path *sync-state
+               ^Local->RemoteSyncer local->remote-syncer ^Remote->LocalSyncer remote->local-syncer remoteapi
+               ^:mutable ratelimit-local-changes-chan
+               *txid ^:mutable state ^:mutable remote-change-chan ^:mutable *ws *stopped? *paused?
+               ^:mutable ops-chan
+               ;; control chans
+               private-full-sync-chan private-stop-sync-chan private-remote->local-sync-chan
+               private-remote->local-full-sync-chan private-pause-resume-chan]
   Object
   (schedule [this next-state args reason]
     {:pre [(s/valid? ::state next-state)]}
@@ -2546,19 +2579,19 @@
     (go-loop []
       (let [{:keys [stop remote->local remote->local-full-sync local->remote-full-sync local->remote resume pause]}
             (async/alt!
-              private-stop-sync-chan {:stop true}
-              private-remote->local-full-sync-chan {:remote->local-full-sync true}
-              private-remote->local-sync-chan {:remote->local true}
-              private-full-sync-chan {:local->remote-full-sync true}
-              private-pause-resume-chan ([v] (if v {:resume true} {:pause true}))
-              remote-change-chan ([v] (println "remote change:" v) {:remote->local v})
-              ratelimit-local-changes-chan ([v]
-                                            (let [rest-v (util/drain-chan ratelimit-local-changes-chan)
-                                                  vs     (cons v rest-v)]
-                                              (println "local changes:" vs)
-                                              {:local->remote vs}))
-              (timeout (* 20 60 1000)) {:local->remote-full-sync true}
-              :priority true)]
+             private-stop-sync-chan {:stop true}
+             private-remote->local-full-sync-chan {:remote->local-full-sync true}
+             private-remote->local-sync-chan {:remote->local true}
+             private-full-sync-chan {:local->remote-full-sync true}
+             private-pause-resume-chan ([v] (if v {:resume true} {:pause true}))
+             remote-change-chan ([v] (println "remote change:" v) {:remote->local v})
+             ratelimit-local-changes-chan ([v]
+                                           (let [rest-v (util/drain-chan ratelimit-local-changes-chan)
+                                                 vs     (cons v rest-v)]
+                                             (println "local changes:" vs)
+                                             {:local->remote vs}))
+             (timeout (* 20 60 1000)) {:local->remote-full-sync true}
+             :priority true)]
         (cond
           stop
           (do (util/drain-chan ops-chan)
@@ -2598,12 +2631,12 @@
         (assert (s/valid? ::state next-state) next-state)
         (when (= next-state ::idle)
           (<! (<ensure-set-env&keys graph-uuid *stopped?))
-            ;; wait seconds to receive all file change events,
-            ;; and then drop all of them.
-            ;; WHY: when opening a graph(or switching to another graph),
-            ;;      file-watcher will send a lot of file-change-events,
-            ;;      actually, each file corresponds to a file-change-event,
-            ;;      we need to ignore all of them.
+          ;; wait seconds to receive all file change events,
+          ;; and then drop all of them.
+          ;; WHY: when opening a graph(or switching to another graph),
+          ;;      file-watcher will send a lot of file-change-events,
+          ;;      actually, each file corresponds to a file-change-event,
+          ;;      we need to ignore all of them.
           (<! (timeout 3000))
           (println :drain-local-changes-chan-at-starting
                    (count (util/drain-chan local-changes-revised-chan))))
@@ -2612,6 +2645,7 @@
           (.schedule this next-state nil nil)))))
 
   (pause [this]
+    (<! (<rsapi-cancel-all-requests))
     (put-sync-event! {:event :pause
                       :data  {:graph-uuid graph-uuid
                               :epoch      (tc/to-epoch (t/now))}})
@@ -2748,13 +2782,13 @@
                 (.schedule this ::idle nil nil)))))))
 
   (local->remote [this {local-changes :local}]
-    ;; local-changes:: list of FileChangeEvent
+   ;; local-changes:: list of FileChangeEvent
     (assert (some? local-changes) local-changes)
     (go
       (let [distincted-local-changes (distinct-file-change-events local-changes)
             _ (swap! *sync-state #(sync-state-reset-full-local->remote-files % distincted-local-changes))
             change-events-partitions
-            (sequence (partition-file-change-events upload-batch-size) distincted-local-changes)
+                                     (sequence (partition-file-change-events upload-batch-size) distincted-local-changes)
             _ (put-sync-event! {:event :start
                                 :data  {:type       :local->remote
                                         :graph-uuid graph-uuid
@@ -2767,13 +2801,13 @@
                 @*paused?              {:pause true}
                 (empty? es-partitions) {:succ true}
                 :else
-                (let [{:keys [succ need-sync-remote graph-has-been-deleted pause unknown] :as r}
+                (let [{:keys [succ need-sync-remote graph-has-been-deleted pause unknown stop] :as r}
                       (<! (<sync-local->remote! local->remote-syncer (first es-partitions)))]
                   (s/assert ::sync-local->remote!-result r)
                   (cond
                     succ
                     (recur (next es-partitions))
-                    (or need-sync-remote graph-has-been-deleted unknown pause) r))))]
+                    (or need-sync-remote graph-has-been-deleted unknown pause stop) r))))]
         (cond
           succ
           (do (put-sync-event! {:event :finished-local->remote
@@ -2895,15 +2929,15 @@
   (go
     (let [r (<! (<list-remote-graphs remoteapi))
           result
-          (or
-           ;; if api call failed, assume this remote graph still exists
-           (instance? ExceptionInfo r)
-           (and
-            (contains? r :Graphs)
-            (->> (:Graphs r)
-                 (mapv :GraphUUID)
-                 set
-                 (#(contains? % local-graph-uuid)))))]
+            (or
+             ;; if api call failed, assume this remote graph still exists
+             (instance? ExceptionInfo r)
+             (and
+              (contains? r :Graphs)
+              (->> (:Graphs r)
+                   (mapv :GraphUUID)
+                   set
+                   (#(contains? % local-graph-uuid)))))]
 
       (when-not result
         (notification/show! (t :file-sync/graph-deleted) :warning false))
@@ -2934,6 +2968,7 @@
           ;; prevent to get older repo dir and current graph-uuid.
           _                           (<! (p->c (persist-var/-load graphs-txid)))
           [user-uuid graph-uuid txid] @graphs-txid
+          txid                        (or txid 0)
           repo                        (state/get-current-repo)]
       (when (and (graph-sync-off? repo) @network-online-cursor)
         (when (and user-uuid graph-uuid txid
@@ -3015,7 +3050,7 @@
 
 ;;; add-tap
 (comment
-  (def *x (atom nil))
-  (add-tap (fn [v] (reset! *x v)))
+ (def *x (atom nil))
+ (add-tap (fn [v] (reset! *x v)))
 
-  )
+ )

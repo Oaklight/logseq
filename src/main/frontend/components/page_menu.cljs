@@ -12,7 +12,6 @@
             [frontend.util :as util]
             [frontend.util.url :as url-util]
             [frontend.handler.shell :as shell]
-            [frontend.handler.plugin :as plugin-handler]
             [frontend.mobile.util :as mobile-util]
             [electron.ipc :as ipc]
             [frontend.config :as config]
@@ -33,8 +32,8 @@
   (fn [close-fn]
     [:div
      [:div.sm:flex.items-center
-      [:div.mx-auto.flex-shrink-0.flex.items-center.justify-center.h-12.w-12.rounded-full.bg-red-100.sm:mx-0.sm:h-10.sm:w-10
-       [:span.text-red-600.text-xl
+      [:div.mx-auto.flex-shrink-0.flex.items-center.justify-center.h-12.w-12.rounded-full.bg-error.sm:mx-0.sm:h-10.sm:w-10
+       [:span.text-error.text-xl
         (ui/icon "alert-triangle")]]
       [:div.mt-3.text-center.sm:mt-0.sm:ml-4.sm:text-left
        [:h3#modal-headline.text-lg.leading-6.font-medium
@@ -152,7 +151,7 @@
                        (fn []
                          (ipc/ipc "openFileBackupDir" (config/get-local-dir repo) file-path))}})
 
-          (when plugin-handler/lsp-enabled?
+          (when config/lsp-enabled?
             (for [[_ {:keys [label] :as cmd} action pid] (state/get-plugins-commands-with-type :page-menu-item)]
               {:title label
                :options {:on-click #(commands/exec-plugin-simple-command!

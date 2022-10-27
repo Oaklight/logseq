@@ -57,7 +57,7 @@
           ;; a valid html element tag is used, using sablono
           vector->react-elems (fn [[key val]]
                                 (if (sequential? val)
-                                  [key (daiquiri.interpreter/interpret val)]
+                                  [key (interpreter/interpret val)]
                                   [key val]))
           new-options (into {}
                             (if skip-opts-transform?
@@ -97,3 +97,42 @@
          #(rum/set-ref! *mounted false))
        [])
     #(rum/deref *mounted)))
+
+(defn use-bounding-client-rect
+  "Returns the bounding client rect for a given dom node
+   You can manually change the tick value, if you want to force refresh the value, you can manually change the tick value"
+  ([] (use-bounding-client-rect nil))
+  ([tick]
+   (let [[ref set-ref] (rum/use-state nil)
+         [rect set-rect] (rum/use-state nil)]
+     (rum/use-effect!
+      (if ref
+        (fn []
+          (let [update-rect #(set-rect (. ref getBoundingClientRect))
+                updator (fn [entries]
+                          (when (.-contentRect (first (js->clj entries))) (update-rect)))
+                observer (js/ResizeObserver. updator)]
+            (update-rect)
+            (.observe observer ref)
+            #(.disconnect observer)))
+        #())
+      [ref tick])
+     [set-ref rect])))
+
+(defn use-click-outside
+  "Returns a function that can be used to register a callback
+   that will be called when the user clicks outside the given dom node"
+  [handler & {:keys [capture? event]
+              :or {capture? false
+                   event "click"}}] ;; could be "mousedown" or "click"
+  (let [[ref set-ref] (rum/use-state nil)]
+    (rum/use-effect!
+     (fn []
+       (let [listener (fn [e]
+                        (when (and ref
+                                   (not (.. ref (contains (.-target e)))))
+                          (handler e)))]
+         (js/document.addEventListener event listener capture?)
+         #(js/document.removeEventListener event listener capture?)))
+     [ref])
+    set-ref))

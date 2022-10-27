@@ -57,19 +57,15 @@
                   (and
                    (= typ "Search")
                    (not (contains? #{\# \* \/ \[} (first value)))
+                   ;; FIXME: use `gp-util/get-format` instead
                    (let [ext (some-> (gp-util/get-file-ext value) keyword)]
                      (when (and (not (string/starts-with? value "http:"))
                                 (not (string/starts-with? value "https:"))
                                 (not (string/starts-with? value "file:"))
                                 (not (gp-config/local-asset? value))
-                                (or (= ext :excalidraw)
+                                (or (#{:excalidraw :tldr} ext)
                                     (not (contains? supported-formats ext))))
                        value)))
-
-                  (and
-                   (= typ "Complex")
-                   (= (:protocol value) "file")
-                   (:link value))
 
                   (and
                    (= typ "File")
@@ -319,7 +315,7 @@
   (let [refs (->> (concat tags refs [marker priority])
                   (remove string/blank?)
                   (distinct))
-        refs (atom refs)]
+        *refs (atom refs)]
     (walk/prewalk
      (fn [form]
        ;; skip custom queries
@@ -327,29 +323,29 @@
                       (= (first form) "Custom")
                       (= (second form) "query"))
          (when-let [page (get-page-reference form supported-formats)]
-           (swap! refs conj page))
+           (swap! *refs conj page))
          (when-let [tag (get-tag form)]
            (let [tag (text/page-ref-un-brackets! tag)]
              (when (gp-util/tag-valid? tag)
-               (swap! refs conj tag))))
+               (swap! *refs conj tag))))
          form))
      (concat title body))
-    (let [refs (remove string/blank? @refs)
-          children-pages (->> (mapcat (fn [p]
+    (swap! *refs #(remove string/blank? %))
+    (let [children-pages (->> @*refs
+                              (mapcat (fn [p]
                                         (let [p (if (map? p)
                                                   (:block/original-name p)
                                                   p)]
                                           (when (string? p)
                                             (let [p (or (text/get-nested-page-name p) p)]
                                               (when (text/namespace-page? p)
-                                                (gp-util/split-namespace-pages p))))))
-                                      refs)
+                                                (gp-util/split-namespace-pages p)))))))
                               (remove string/blank?)
                               (distinct))
-          refs (->> (distinct (concat refs children-pages))
-                    (remove nil?))
-          refs (map (fn [ref] (page-name->map ref with-id? db true date-formatter)) refs)]
-      (assoc block :refs refs))))
+          refs' (->> (distinct (concat @*refs children-pages))
+                     (remove nil?)
+                     (map (fn [ref] (page-name->map ref with-id? db true date-formatter))))]
+      (assoc block :refs refs'))))
 
 (defn- with-block-refs
   [{:keys [title body] :as block}]
@@ -410,7 +406,7 @@
       content
       (gp-property/->new-properties content))))
 
-(defn- get-custom-id-or-new-id
+(defn get-custom-id-or-new-id
   [properties]
   (or (when-let [custom-id (or (get-in properties [:properties :custom-id])
                                (get-in properties [:properties :custom_id])
@@ -651,7 +647,7 @@
   (let [[blocks other-blocks] (split-with
                                (fn [b]
                                  (not= "macro" (:block/type b)))
-                                blocks)
+                               blocks)
         result (loop [blocks (map (fn [block] (assoc block :block/level-spaces (:block/level block))) blocks)
                       parents [{:page/id page-id     ; db id or a map {:block/name "xxx"}
                                 :block/level 0

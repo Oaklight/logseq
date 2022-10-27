@@ -35,7 +35,7 @@
 
 (defn get-ls-dotdir-root
   []
-  (let [lg-dir (str (.getPath app "home") "/.logseq")]
+  (let [lg-dir (path/join (.getPath app "home") ".logseq")]
     (if-not (fs/existsSync lg-dir)
       (do (fs/mkdirSync lg-dir) lg-dir)
       lg-dir)))
@@ -139,6 +139,12 @@
   "reversing `get-graph-dir`"
   [graph-dir]
   (str "logseq_local_" graph-dir))
+
+(defn decode-protected-assets-schema-path
+  [schema-path]
+  (cond-> schema-path
+    (string? schema-path)
+    (string/replace "/logseq__colon/" ":/")))
 
 ;; Keep update with the normalization in main
 (defn normalize

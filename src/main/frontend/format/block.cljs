@@ -59,7 +59,7 @@ and handles unexpected failure."
   "Normalizes supported formats such as dates and percentages."
   ([block]
    (->> [normalize-as-percentage normalize-as-date identity]
-        (map #(% block))
+        (map #(% (if (set? block) (first block) block)))
         (remove nil?)
         (first))))
 
@@ -101,7 +101,7 @@ and handles unexpected failure."
                body (vec (if title (rest ast) ast))
                body (drop-while gp-property/properties-ast? body)
                result (cond->
-                        (if (seq body) {:block/body body} {})
+                       (if (seq body) {:block/body body} {})
                         title
                         (assoc :block/title title))]
            (state/add-block-ast-cache! block-uuid content result)

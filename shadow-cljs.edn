@@ -5,6 +5,8 @@
  ;; "." for /static
  :dev-http {3001 ["static" "."]}
 
+ :js-options {:js-package-dirs ["node_modules" "tldraw/apps"]}
+
  :builds
  {:app {:target        :browser
         :module-loader true
@@ -19,7 +21,11 @@
                          :depends-on #{:main}}
                         :excalidraw
                         {:entries    [frontend.extensions.excalidraw]
-                         :depends-on #{:main}}}
+                         :depends-on #{:main}}
+                        :tldraw
+                        {:entries    [frontend.extensions.tldraw]
+                         :depends-on #{:main}}
+                        }
         :output-dir       "./static/js"
         :asset-path       "/static/js"
         :release          {:asset-path "https://asset.logseq.com/static/js"}
@@ -37,7 +43,7 @@
         ;; NOTE: electron, browser/mobile-app use different asset-paths.
         ;;   For browser/mobile-app devs, assets are located in /static/js(via HTTP root).
         ;;   For electron devs, assets are located in ./js(via relative path).
-        ; :dev      {:asset-path "./js"}
+        ;; :dev      {:asset-path "./js"}
         :devtools {:before-load frontend.core/stop  ;; before live-reloading any code call this function
                    :after-load  frontend.core/start ;; after live-reloading finishes call this function
                    :watch-path  "/static"
@@ -64,7 +70,9 @@
          :closure-defines {frontend.util/NODETEST true}
          :devtools        {:enabled false}
          ;; disable :static-fns to allow for with-redefs and repl development
-         :compiler-options {:static-fns false}
+         :compiler-options {:static-fns false
+         ;; For custom conditional reading, see https://shadow-cljs.github.io/docs/UsersGuide.html#_conditional_reading
+                            :reader-features #{:node-test}}
          :main            frontend.test.frontend-node-test-runner/main}
 
   :publishing {:target        :browser
@@ -80,7 +88,11 @@
                                 :depends-on #{:main}}
                                :excalidraw
                                {:entries    [frontend.extensions.excalidraw]
-                                :depends-on #{:main}}}
+                                :depends-on #{:main}}
+                               :tldraw
+                               {:entries    [frontend.extensions.tldraw]
+                                :depends-on #{:main}}
+                               }
                :output-dir       "./static/js/publishing"
                :asset-path       "static/js"
                :closure-defines  {frontend.config/PUBLISHING true

@@ -9,6 +9,7 @@
             ["grapheme-splitter" :as GraphemeSplitter]
             ["remove-accents" :as removeAccents]
             ["check-password-strength" :refer [passwordStrength]]
+            [frontend.loader :refer [load]]
             [cljs-bean.core :as bean]
             [cljs-time.coerce :as tc]
             [cljs-time.core :as t]
@@ -40,13 +41,16 @@
        (-write writer (str "\"" (.toString sym) "\"")))))
 
 #?(:cljs (defonce ^js node-path utils/nodePath))
+#?(:cljs (defonce ^js full-path-extname utils/fullPathExtname))
 #?(:cljs (defn app-scroll-container-node
            ([]
             (gdom/getElement "main-content-container"))
            ([el]
             (if (.closest el "#main-content-container")
               (app-scroll-container-node)
-              (gdom/getElementByClass "sidebar-item-list")))))
+              (or
+               (gdom/getElementByClass "sidebar-item-list")
+               (app-scroll-container-node))))))
 
 #?(:cljs
    (defn safe-re-find
@@ -747,13 +751,13 @@
 #?(:cljs
    (defn react
      [ref]
-     (if rum.core/*reactions*
+     (if rum/*reactions*
        (rum/react ref)
        @ref)))
 
 (defn time-ms
   []
-  #?(:cljs (tc/to-long (cljs-time.core/now))))
+  #?(:cljs (tc/to-long (t/now))))
 
 ;; Returns the milliseconds representation of the provided time, in the local timezone.
 ;; For example, if you run this function at 10pm EDT in the EDT timezone on May 31st,
@@ -792,43 +796,51 @@
    (defn get-prev-block-non-collapsed
      [block]
      (when-let [blocks (get-blocks-noncollapse)]
-       (when-let [index (.indexOf blocks block)]
-         (let [idx (dec index)]
-           (when (>= idx 0)
-             (nth-safe blocks idx)))))))
+       (let [block-id (.-id block)
+             block-ids (mapv #(.-id %) blocks)]
+         (when-let [index (.indexOf block-ids block-id)]
+           (let [idx (dec index)]
+             (when (>= idx 0)
+               (nth-safe blocks idx))))))))
 
 #?(:cljs
    (defn get-prev-block-non-collapsed-non-embed
      [block]
      (when-let [blocks (->> (get-blocks-noncollapse)
                             remove-embeded-blocks)]
-       (when-let [index (.indexOf blocks block)]
-         (let [idx (dec index)]
-           (when (>= idx 0)
-             (nth-safe blocks idx)))))))
+       (let [block-id (.-id block)
+             block-ids (mapv #(.-id %) blocks)]
+         (when-let [index (.indexOf block-ids block-id)]
+          (let [idx (dec index)]
+            (when (>= idx 0)
+              (nth-safe blocks idx))))))))
 
 #?(:cljs
    (defn get-next-block-non-collapsed
      [block]
      (when-let [blocks (get-blocks-noncollapse)]
-       (when-let [index (.indexOf blocks block)]
-         (let [idx (inc index)]
-           (when (>= (count blocks) idx)
-             (nth-safe blocks idx)))))))
+       (let [block-id (.-id block)
+             block-ids (mapv #(.-id %) blocks)]
+         (when-let [index (.indexOf block-ids block-id)]
+          (let [idx (inc index)]
+            (when (>= (count blocks) idx)
+              (nth-safe blocks idx))))))))
 
 #?(:cljs
    (defn get-next-block-non-collapsed-skip
      [block]
      (when-let [blocks (get-blocks-noncollapse)]
-       (when-let [index (.indexOf blocks block)]
-         (loop [idx (inc index)]
-           (when (>= (count blocks) idx)
-             (let [block (nth-safe blocks idx)
-                   nested? (->> (array-seq (gdom/getElementsByClass "selected"))
-                                (some (fn [dom] (.contains dom block))))]
-               (if nested?
-                 (recur (inc idx))
-                 block))))))))
+       (let [block-id (.-id block)
+             block-ids (mapv #(.-id %) blocks)]
+         (when-let [index (.indexOf block-ids block-id)]
+          (loop [idx (inc index)]
+            (when (>= (count blocks) idx)
+              (let [block (nth-safe blocks idx)
+                    nested? (->> (array-seq (gdom/getElementsByClass "selected"))
+                                 (some (fn [dom] (.contains dom block))))]
+                (if nested?
+                  (recur (inc idx))
+                  block)))))))))
 
 (defn rand-str
   [n]
@@ -910,24 +922,6 @@
      [string]
      (some-> string str (js/encodeURIComponent) (.replace "+" "%20"))))
 
-(def windows-reserved-chars #"[:\\*\\?\"<>|]+")
-
-#?(:cljs
-   (do
-     (defn include-windows-reserved-chars?
-      [s]
-       (safe-re-find windows-reserved-chars s))
-
-     (defn create-title-property?
-       [s]
-       (and (string? s)
-            (or (include-windows-reserved-chars? s)
-                (string/includes? s "_")
-                (string/includes? s "/")
-                (string/includes? s ".")
-                (string/includes? s "%")
-                (string/includes? s "#"))))))
-
 #?(:cljs
    (defn search-normalize
      "Normalize string for searching (loose)"
@@ -936,19 +930,6 @@
       (if remove-accents?
         (removeAccents  normalize-str)
         normalize-str))))
-
-#?(:cljs
-   (defn file-name-sanity
-     "Sanitize page-name for file name (strict), for file writing."
-     [page-name]
-     (some-> page-name
-             gp-util/page-name-sanity
-             ;; for android filesystem compatiblity
-             (string/replace #"[\\#|%]+" url-encode)
-             ;; Windows reserved path characters
-             (string/replace windows-reserved-chars url-encode)
-             (string/replace #"/" url-encode)
-             (string/replace "*" "%2A"))))
 
 #?(:cljs
    (def page-name-sanity-lc
@@ -1006,12 +987,13 @@
     [col1 col2]))
 
 ;; fs
-(defn get-file-ext
-  [file]
-  (and
-   (string? file)
-   (string/includes? file ".")
-   (some-> (last (string/split file #"\.")) string/lower-case)))
+#?(:cljs
+   (defn get-file-ext
+     [file]
+     (and
+      (string? file)
+      (string/includes? file ".")
+      (some-> (gp-util/path->file-ext file) string/lower-case))))
 
 (defn get-dir-and-basename
   [path]
@@ -1059,25 +1041,25 @@
 
 ;; TODO: profile and profileEnd
 
-;; Copy from hiccup
+;; Copy from hiccup but tweaked for publish usage
 (defn escape-html
   "Change special characters into HTML character entities."
   [text]
   (-> text
-      (string/replace "&"  "&amp;")
-      (string/replace "<"  "&lt;")
-      (string/replace ">"  "&gt;")
-      (string/replace "\"" "&quot;")
-      (string/replace "'" "&apos;")))
+      (string/replace "&"  "logseq____&amp;")
+      (string/replace "<"  "logseq____&lt;")
+      (string/replace ">"  "logseq____&gt;")
+      (string/replace "\"" "logseq____&quot;")
+      (string/replace "'" "logseq____&apos;")))
 
 (defn unescape-html
   [text]
   (-> text
-      (string/replace "&amp;" "&")
-      (string/replace "&lt;" "<")
-      (string/replace "&gt;" ">")
-      (string/replace "&quot;" "\"")
-      (string/replace "&apos;" "'")))
+      (string/replace "logseq____&amp;" "&")
+      (string/replace "logseq____&lt;" "<")
+      (string/replace "logseq____&gt;" ">")
+      (string/replace "logseq____&quot;" "\"")
+      (string/replace "logseq____&apos;" "'")))
 
 (comment
   (= (get-relative-path "journals/2020_11_18.org" "pages/grant_ideas.org")
@@ -1237,7 +1219,7 @@
              #(if (map? %)
                 (for [[k v] %]
                   (when v (name k)))
-                [(name %)])
+                (when-not (nil? %) [(name %)]))
              args)))
 
 #?(:cljs
@@ -1407,3 +1389,26 @@
                Math/floor
                int
                (#(str % " " (:name unit) (when (> % 1) "s") " ago"))))))))
+#?(:cljs
+   (def JS_ROOT
+     (when-not node-test?
+       (if (= js/location.protocol "file:")
+         "./js"
+         "./static/js"))))
+
+#?(:cljs
+   (defn js-load$
+     [url]
+     (p/create
+      (fn [resolve]
+        (load url resolve)))))
+
+#?(:cljs
+   (defn element-visible?
+     [element]
+     (when element
+       (when-let [r (.getBoundingClientRect element)]
+         (and (>= (.-top r) 0)
+              (<= (+ (.-bottom r) 64)
+                  (or (.-innerHeight js/window)
+                      (js/document.documentElement.clientHeight))))))))
