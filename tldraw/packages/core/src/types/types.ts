@@ -3,6 +3,17 @@ import type { TLShape, TLApp } from '../lib'
 import type { TLEventMap } from './TLEventMap'
 import type { TLHandle } from './TLHandle'
 
+export enum Color {
+  Gray = 'gray',
+  Red = 'red',
+  Yellow = 'yellow',
+  Green = 'green',
+  Blue = 'blue',
+  Purple = 'purple',
+  Pink = 'pink',
+  Default = '',
+}
+
 export enum AlignType {
   Top = 'top',
   CenterVertical = 'centerVertical',
@@ -123,6 +134,13 @@ export interface TLAsset {
   src: string
 }
 
+export type TLPasteEventInfo = {
+  point: number[]
+  shiftKey: boolean
+  dataTransfer?: DataTransfer
+  fromDrop?: boolean
+}
+
 /* --------------------- Events --------------------- */
 
 export type TLSubscriptionEvent =
@@ -172,7 +190,7 @@ export type TLSubscriptionEvent =
     }
   | {
       event: 'paste'
-      info: { point: number[]; shiftKey: boolean; dataTransfer?: DataTransfer, fromDrop?: boolean }
+      info: TLPasteEventInfo
     }
   | {
       event: 'create-assets'

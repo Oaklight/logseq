@@ -362,12 +362,9 @@
     (let [page-menu-options (page-menu/page-menu page)]
       [:.menu-links-wrapper
        (for [{:keys [title options]} page-menu-options]
-         (ui/menu-link
-          (merge
-           {:key title}
-           options)
-          title
-          nil))])))
+         (rum/with-key
+           (ui/menu-link options title nil)
+           title))])))
 
 ;; TODO: content could be changed
 ;; Also, keyboard bindings should only be activated after
@@ -375,6 +372,8 @@
 (rum/defc hiccup-content < rum/static
   (mixins/event-mixin
    (fn [state]
+     ;; fixme: this mixin will register global event listeners on window
+     ;; which might cause unexpected issues
      (mixins/listen state js/window "contextmenu"
                     (fn [e]
                       (let [target (gobj/get e "target")

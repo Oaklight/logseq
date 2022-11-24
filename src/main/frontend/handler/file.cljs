@@ -93,7 +93,8 @@
                            re-render-root? false
                            from-disk? false
                            skip-compare? false}}]
-  (let [original-content (db/get-file repo path)
+  (let [path (gp-util/path-normalize path)
+        original-content (db/get-file repo path)
         write-file! (if from-disk?
                       #(p/resolved nil)
                       #(let [path-dir (if (and
@@ -164,7 +165,8 @@
   [repo files {:keys [finish-handler]} file->content]
   (let [write-file-f (fn [[path content]]
                        (when path
-                         (let [original-content (get file->content path)]
+                         (let [path (gp-util/path-normalize path)
+                               original-content (get file->content path)]
                           (-> (p/let [_ (or
                                          (util/electron?)
                                          (nfs/check-directory-permission! repo))]
@@ -219,25 +221,3 @@
       ;; after an app refresh can cause stale page data to load
       (fs/unwatch-dir! dir)
       (fs/watch-dir! dir))))
-
-(defn create-metadata-file
-  [repo-url encrypted?]
-  (let [repo-dir (config/get-repo-dir repo-url)
-        path (str config/app-name "/" config/metadata-file)
-        file-path (str "/" path)
-        default-content (if encrypted? "{:db/encrypted? true}" "{}")]
-    (p/let [_ (fs/mkdir-if-not-exists (util/safe-path-join repo-dir config/app-name))
-            file-exists? (fs/create-if-not-exists repo-url repo-dir file-path default-content)]
-      (when-not file-exists?
-        (file-common-handler/reset-file! repo-url path default-content)))))
-
-(defn create-pages-metadata-file
-  [repo-url]
-  (let [repo-dir (config/get-repo-dir repo-url)
-        path (str config/app-name "/" config/pages-metadata-file)
-        file-path (str "/" path)
-        default-content "{}"]
-    (p/let [_ (fs/mkdir-if-not-exists (util/safe-path-join repo-dir config/app-name))
-            file-exists? (fs/create-if-not-exists repo-url repo-dir file-path default-content)]
-      (when-not file-exists?
-        (file-common-handler/reset-file! repo-url path default-content)))))

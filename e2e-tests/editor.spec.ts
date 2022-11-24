@@ -29,6 +29,25 @@ test('hashtag and quare brackets in same line #4178', async ({ page }) => {
   )
 })
 
+test('hashtag search page auto-complete', async ({ page, block }) => {
+  await createRandomPage(page)
+
+  await block.activeEditing(0)
+
+  await page.type('textarea >> nth=0', '#', { delay: 100 })
+  await page.waitForSelector('text="Search for a page"', { state: 'visible' })
+  await page.keyboard.press('Escape', { delay: 50 })
+
+  await block.mustFill("done")
+
+  await enterNextBlock(page)
+  await page.type('textarea >> nth=0', 'Some #', { delay: 100 })
+  await page.waitForSelector('text="Search for a page"', { state: 'visible' })
+  await page.keyboard.press('Escape', { delay: 50 })
+
+  await block.mustFill("done")
+})
+
 test('disappeared children #4814', async ({ page, block }) => {
   await createRandomPage(page)
 
@@ -535,5 +554,42 @@ test('should show text after soft return when node is collapsed #5074', async ({
 
   expect(await page.inputValue('textarea >> nth=0')).toBe(
     'Before soft return\nAfter soft return'
+  )
+})
+
+test('should not erase typed text when expanding block quickly after typing #3891', async ({ page, block }) => {
+  await createRandomPage(page)
+
+  await block.mustFill('initial text,')
+  await page.waitForTimeout(500)
+  await page.type('textarea >> nth=0', ' then expand', { delay: 10 })
+  // A quick cmd-down must not destroy the typed text
+  if (IsMac) {
+    await page.keyboard.press('Meta+ArrowDown')
+  } else {
+    await page.keyboard.press('Control+ArrowDown')
+  }
+  await page.waitForTimeout(500)
+  expect(await page.inputValue('textarea >> nth=0')).toBe(
+    'initial text, then expand'
+  )
+
+  // First undo should delete the last typed information, not undo a no-op expand action
+  if (IsMac) {
+    await page.keyboard.press('Meta+z')
+  } else {
+    await page.keyboard.press('Control+z')
+  }
+  expect(await page.inputValue('textarea >> nth=0')).toBe(
+    'initial text,'
+  )
+
+  if (IsMac) {
+    await page.keyboard.press('Meta+z')
+  } else {
+    await page.keyboard.press('Control+z')
+  }
+  expect(await page.inputValue('textarea >> nth=0')).toBe(
+    ''
   )
 })
